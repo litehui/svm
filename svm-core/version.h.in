@@ -1,0 +1,2 @@
+// version.h.in
+#define PROJECT_VERSION "@svm_VERSION@"

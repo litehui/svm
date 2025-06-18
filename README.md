@@ -32,6 +32,11 @@ sdk eg:jdk
 version eg:v1.8.0_332
 ```
 
+4. 备份环境变量（使用use前也会调用该方法），备份结果保存在config/backupSysEnv.txt
+```shell
+svm backup
+```
+
 ## 目录结构
 ```
 svm-core/
@@ -41,7 +46,8 @@ svm-core/
 ├── repository/                 # 默认仓库目录
 ├── service/                    # 服务目录
 │   ├── show                    # 展示可用sdk
-│   └── use                     # 切换sdk
+│   ├── use                     # 切换sdk
+│   └── backupSysEnv            # 备份环境变量
 ├── util/                       # 工具类目录
 │   ├── ConfigUtil              # 操作properties
 │   └── SysEnvUtil              # 操作系统环境变量
@@ -58,5 +64,7 @@ svm-core/
 - [ ] 用shell配置application.properties
 
 ## 附
-- 发送邮件至litehui@foxmail.com获取repository
 - 推荐openjdk下载地址：https://www.openlogic.com/openjdk-downloads
+- 系统环境变量：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment
+- 用户环境变量：HKEY_CURRENT_USER\Environment
+

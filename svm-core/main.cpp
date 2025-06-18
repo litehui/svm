@@ -3,6 +3,7 @@
 
 #include "service/show.h"
 #include "service/use.h"
+#include "service/backupSysEvn.h"
 #include "version.h"
 
 void help(bool is_error) {
@@ -27,7 +28,9 @@ int main(int argc, char** argv) {
         show();
     } else if (argc==4&&strcmp(argv[1],"use")==0) {
         use(argv[2],argv[3]);
-    }else {
+    } else if(argc==2&&strcmp(argv[1],"backup")==0){
+        backupSysEvn();
+    } else {
         help(true);
     }
     return 0;

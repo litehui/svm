@@ -1,126 +1,127 @@
-// SysEnvUtil.cpp
 #include "SysEnvUtil.h"
-#include <windows.h>
-#include <optional>
-#include <vector>
-#include <stdexcept>
+#include <algorithm>
 
-SysEnvUtil::SysEnvUtil(EnvType type) : envType_(type) {}
-
-HKEY SysEnvUtil::getRootKey() const {
-    return (envType_ == EnvType::System) ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+SysEnvUtil::SysEnvUtil(EnvScope scope) : m_scope(scope) {
+    m_rootKey = (scope == EnvScope::System) ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+    m_regPath = (scope == EnvScope::System) 
+        ? L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" 
+        : L"Environment";
 }
 
-std::vector<std::pair<std::wstring, std::wstring>> SysEnvUtil::getAllKeys() const {
-    HKEY hKey = nullptr;
-    auto rootKey = getRootKey();
-    LONG result = RegOpenKeyExW(rootKey, L"Environment", 0, KEY_READ, &hKey);
-    if (result != ERROR_SUCCESS) {
-        throw std::runtime_error("Failed to open registry key.");
-    }
+SysEnvUtil::~SysEnvUtil() {}
 
-    std::vector<std::pair<std::wstring, std::wstring>> variables;
+bool SysEnvUtil::openKey(HKEY* hKey, REGSAM permissions) const {
+    return RegOpenKeyExW(m_rootKey, m_regPath.c_str(), 0, permissions, hKey) == ERROR_SUCCESS;
+}
+
+void SysEnvUtil::broadcastChange() const {
+    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 
+                       (LPARAM)L"Environment", SMTO_BLOCK, 100, nullptr);
+}
+
+std::map<std::wstring, std::wstring> SysEnvUtil::getAll() const {
+    std::map<std::wstring, std::wstring> result;
+    HKEY hKey;
+    if (!openKey(&hKey, KEY_READ)) return result;
 
     DWORD index = 0;
-    WCHAR name[1024];
-    DWORD nameSize = sizeof(name) / sizeof(name[0]);
-    BYTE data[16384];
-    DWORD dataSize = sizeof(data);
+    wchar_t name[32767];
+    wchar_t data[32767];
+    DWORD nameSize, dataSize, type;
+
     while (true) {
-        nameSize = sizeof(name) / sizeof(name[0]);
-        dataSize = sizeof(data);
-        DWORD type = 0;
-        result = RegEnumValueW(hKey, index++, name, &nameSize, nullptr, &type, data, &dataSize);
-        if (result == ERROR_NO_MORE_ITEMS) break;
-        if (result != ERROR_SUCCESS) continue;
-
-        if (type == REG_SZ || type == REG_EXPAND_SZ) {
-            variables.emplace_back(std::wstring(name), std::wstring(reinterpret_cast<WCHAR*>(data)));
+        nameSize = 32767;
+        dataSize = 32767 * sizeof(wchar_t);
+        if (RegEnumValueW(hKey, index, name, &nameSize, nullptr, &type, 
+                         (LPBYTE)data, &dataSize) != ERROR_SUCCESS) {
+            break;
         }
+        
+        if (type == REG_SZ || type == REG_EXPAND_SZ) {
+            result[name] = data;
+        }
+        index++;
     }
 
     RegCloseKey(hKey);
-    return variables;
+    return result;
 }
 
-bool SysEnvUtil::deleteKey(const std::wstring& key) const {
-    HKEY hKey = nullptr;
-    auto rootKey = getRootKey();
-    LONG result = RegOpenKeyExW(rootKey, L"Environment", 0, KEY_SET_VALUE, &hKey);
-    if (result != ERROR_SUCCESS) return false;
+bool SysEnvUtil::remove(const std::wstring& key) {
+    HKEY hKey;
+    if (!openKey(&hKey, KEY_WRITE)) return false;
 
-    result = RegDeleteValueW(hKey, key.c_str());
+    bool success = (RegDeleteValueW(hKey, key.c_str()) == ERROR_SUCCESS);
     RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
+
+    if (success) broadcastChange();
+    return success;
 }
 
-bool SysEnvUtil::containsKey(const std::wstring& key) const {
-    HKEY hKey = nullptr;
-    auto rootKey = getRootKey();
-    LONG result = RegOpenKeyExW(rootKey, L"Environment", 0, KEY_READ, &hKey);
-    if (result != ERROR_SUCCESS) return false;
+bool SysEnvUtil::exists(const std::wstring& key) const {
+    HKEY hKey;
+    if (!openKey(&hKey, KEY_READ)) return false;
 
-    DWORD type = 0, size = 0;
-    result = RegQueryValueExW(hKey, key.c_str(), nullptr, &type, nullptr, &size);
+    DWORD type, size = 0;
+    bool exists = (RegQueryValueExW(hKey, key.c_str(), nullptr, &type, nullptr, &size) == ERROR_SUCCESS);
     RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
+    return exists;
 }
 
-bool SysEnvUtil::renameKey(const std::wstring& oldKey, const std::wstring& newKey) const {
-    if (!containsKey(oldKey)) return false;
-    if (containsKey(newKey)) return false;
-
-    auto oldValue = getKeyValue(oldKey);
-    if (!oldValue.has_value()) return false;
-
-    if (!setKeyValue(newKey, oldValue.value())) return false;
-    if (!deleteKey(oldKey)) return false;
-
-    return true;
+bool SysEnvUtil::renameKey(const std::wstring& oldKey, const std::wstring& newKey) {
+    std::wstring oldValue = getValue(oldKey);
+    if (oldValue.empty()) return false;
+    if (!remove(oldKey)) return false;
+    return setValue(newKey, oldValue);
 }
 
-bool SysEnvUtil::setKeyValue(const std::wstring& key, const std::wstring& value) const {
-    HKEY hKey = nullptr;
-    auto rootKey = getRootKey();
-    LONG result = RegOpenKeyExW(rootKey, L"Environment", 0, KEY_SET_VALUE, &hKey);
-    if (result != ERROR_SUCCESS) return false;
+bool SysEnvUtil::setValue(const std::wstring& key, const std::wstring& value) {
+    HKEY hKey;
+    if (!openKey(&hKey, KEY_WRITE)) return false;
 
-    result = RegSetValueExW(hKey, key.c_str(), 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size() + 1) * sizeof(WCHAR)));
+    bool success = (RegSetValueExW(hKey, key.c_str(), 0, REG_SZ, 
+                                 (const BYTE*)value.c_str(), 
+                                 (value.size() + 1) * sizeof(wchar_t)) == ERROR_SUCCESS);
     RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
+    
+    if (success) broadcastChange();
+    return success;
 }
 
-std::optional<std::wstring> SysEnvUtil::getKeyValue(const std::wstring& key) const {
-    HKEY hKey = nullptr;
-    auto rootKey = getRootKey();
-    LONG result = RegOpenKeyExW(rootKey, L"Environment", 0, KEY_READ, &hKey);
-    if (result != ERROR_SUCCESS) return std::nullopt;
+std::wstring SysEnvUtil::getValue(const std::wstring& key) const {
+    HKEY hKey;
+    if (!openKey(&hKey, KEY_READ)) return L"";
 
-    DWORD type = 0, size = 0;
-    result = RegQueryValueExW(hKey, key.c_str(), nullptr, &type, nullptr, &size);
-    if (result != ERROR_SUCCESS) {
+    wchar_t buffer[32767];
+    DWORD size = sizeof(buffer);
+    DWORD type;
+    
+    if (RegQueryValueExW(hKey, key.c_str(), nullptr, &type, 
+                        (LPBYTE)buffer, &size) != ERROR_SUCCESS || 
+        (type != REG_SZ && type != REG_EXPAND_SZ)) {
         RegCloseKey(hKey);
-        return std::nullopt;
+        return L"";
     }
 
-    std::vector<BYTE> buffer(size);
-    result = RegQueryValueExW(hKey, key.c_str(), nullptr, &type, buffer.data(), &size);
     RegCloseKey(hKey);
-
-    if (result != ERROR_SUCCESS) return std::nullopt;
-
-    return std::wstring(reinterpret_cast<WCHAR*>(buffer.data()));
+    return std::wstring(buffer);
 }
 
-std::optional<std::wstring> SysEnvUtil::setKeyValueAndGetOld(const std::wstring& key, const std::wstring& value) const {
-    auto oldValue = getKeyValue(key);
-    if (!setKeyValue(key, value)) return std::nullopt;
+std::wstring SysEnvUtil::setValueAndGetOld(const std::wstring& key, const std::wstring& value) {
+    std::wstring oldValue = getValue(key);
+    setValue(key, value);
     return oldValue;
 }
 
-std::optional<std::wstring> SysEnvUtil::appendToValue(const std::wstring& key, const std::wstring& value) const {
-    auto oldValue = getKeyValue(key);
-    std::wstring newValue = (oldValue.has_value() ? oldValue.value() + value : value);
-    if (!setKeyValue(key, newValue)) return std::nullopt;
+std::wstring SysEnvUtil::appendValue(const std::wstring& key, const std::wstring& value, const wchar_t separator) {
+    std::wstring oldValue = getValue(key);
+    std::wstring newValue = oldValue;
+    
+    if (!oldValue.empty() && oldValue.back() != separator) {
+        newValue += separator;
+    }
+    newValue += value;
+    
+    setValue(key, newValue);
     return oldValue;
 }

@@ -1,54 +1,56 @@
 //
-// Created by litehui on 25-5-23.
+// Created by litehui on 25-6-18.
 //
 
 #ifndef SYSENVUTIL_H
 #define SYSENVUTIL_H
 
-// SysEnvUtil.h
-
-#include <string>
-#include <vector>
-#include <optional>
 #include <windows.h>
-
-enum class EnvType {
-    System,
-    User
-};
+#include <string>
+#include <map>
+#include <vector>
 
 class SysEnvUtil {
 public:
-    explicit SysEnvUtil(EnvType type);
+    enum class EnvScope {
+        System,
+        User
+    };
 
-    // 查询所有键值对
-    std::vector<std::pair<std::wstring, std::wstring>> getAllKeys() const;
+    explicit SysEnvUtil(EnvScope scope);
+    ~SysEnvUtil();
 
-    // 删除指定的 key（如果存在）
-    bool deleteKey(const std::wstring& key) const;
+    // 获取所有环境变量键值对
+    std::map<std::wstring, std::wstring> getAll() const;
 
-    // 检查给定 key 是否存在
-    bool containsKey(const std::wstring& key) const;
+    // 删除指定环境变量
+    bool remove(const std::wstring& key);
 
-    // 修改 key 的名称（重命名）
-    bool renameKey(const std::wstring& oldKey, const std::wstring& newKey) const;
+    // 检查环境变量是否存在
+    bool exists(const std::wstring& key) const;
 
-    // 设置指定 key 的值
-    bool setKeyValue(const std::wstring& key, const std::wstring& value) const;
+    // 重命名环境变量键
+    bool renameKey(const std::wstring& oldKey, const std::wstring& newKey);
 
-    // 获取指定 key 的值
-    std::optional<std::wstring> getKeyValue(const std::wstring& key) const;
+    // 设置环境变量值
+    bool setValue(const std::wstring& key, const std::wstring& value);
 
-    // 设置指定 key 的值，并返回旧值
-    std::optional<std::wstring> setKeyValueAndGetOld(const std::wstring& key, const std::wstring& value) const;
+    // 获取环境变量值
+    std::wstring getValue(const std::wstring& key) const;
 
-    // 将 value 追加到 key 的当前值，并返回旧值
-    std::optional<std::wstring> appendToValue(const std::wstring& key, const std::wstring& value) const;
+    // 设置环境变量并返回旧值
+    std::wstring setValueAndGetOld(const std::wstring& key, const std::wstring& value);
+
+    // 追加值到环境变量并返回旧值
+    std::wstring appendValue(const std::wstring& key, const std::wstring& value, const wchar_t separator = L';');
 
 private:
-    EnvType envType_;
-    HKEY getRootKey() const;
-};
+    EnvScope m_scope;
+    HKEY m_rootKey;
+    std::wstring m_regPath;
 
+    void broadcastChange() const;
+    bool openKey(HKEY* hKey, REGSAM permissions) const;
+};
 
 #endif //SYSENVUTIL_H

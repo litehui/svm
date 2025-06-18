@@ -1,8 +1,9 @@
 #include "use.h"
+#include "../util/ConfigUtil.h"
+#include "backupSysEvn.h"
+#include "../util/SysEnvUtil.h"
 #include <algorithm>
 #include <filesystem>
-#include "../util/ConfigUtil.h"
-#include "../util/SysEnvUtil.h"
 #include <iostream>
 #include <windows.h> // 新增头文件
 
@@ -37,28 +38,23 @@ bool createSymbolicLink(const std::filesystem::path& linkPath, const std::filesy
     return true;
 }
 
-// 检查路径是否已存在于PATH环境变量
-bool isPathInEnvironment(const std::vector<std::wstring>& paths, const std::wstring& targetPath) {
-    return std::any_of(paths.begin(), paths.end(),
-        [&targetPath](const std::wstring& path) {
-            return path == targetPath;
-        });
-}
+bool updateEnvironment(std::wstring target, SysEnvUtil& envUtil) {
+    std::wstring pathValue = envUtil.getValue(L"Path");
+    std::wstring upperTarget = target;
+    std::wstring upperPathValue = pathValue;
 
-// 解析PATH环境变量
-std::vector<std::wstring> parsePathEnvironment(const std::wstring& pathValue) {
-    std::vector<std::wstring> paths;
-    size_t start = 0;
-    size_t end = pathValue.find(L";");
+    auto toUpper = [](wchar_t c) { return std::towupper(c); };
+    std::transform(upperTarget.begin(), upperTarget.end(), upperTarget.begin(), toUpper);
+    std::transform(upperPathValue.begin(), upperPathValue.end(), upperPathValue.begin(), toUpper);
 
-    while (end != std::wstring::npos) {
-        paths.push_back(pathValue.substr(start, end - start));
-        start = end + 1;
-        end = pathValue.find(L";", start);
+    if (upperPathValue.find(upperTarget) == std::wstring::npos) {
+        std::wstring result = envUtil.appendValue(L"Path", target);
     }
-    paths.push_back(pathValue.substr(start)); // 添加最后一个路径项
-    return paths;
+    return true;
 }
+
+
+
 
 int use(const char* sdk, const char* version) {
 
@@ -82,39 +78,76 @@ int use(const char* sdk, const char* version) {
             return -1;
         }
 
-
         // 创建符号链接
         if (!createSymbolicLink(linkPath, repositoryPath)) {
             return -1;
         }
 
-        // 设置环境变量
-        SysEnvUtil userEnv(EnvType::User);
-
-        // 设置JAVA_HOME
-        userEnv.setKeyValue(L"JAVA_HOME", linkPath.wstring());
-
-        // 处理PATH环境变量
-        auto pathValue = userEnv.getKeyValue(L"PATH");
-        if (!pathValue.has_value()) {
-            std::wcerr << L"PATH environment variable not found." << std::endl;
-            return -1;
-        }
-
-        std::vector<std::wstring> paths =
-            parsePathEnvironment(pathValue.value());
-
-        std::wstring targetPath = L"%JAVA_HOME%\\bin";
-        if (!isPathInEnvironment(paths, targetPath)) {
-            std::wstring targetToAdd = L";%JAVA_HOME%\\bin";
-            if (pathValue->empty() || pathValue->back() == L';') {
-                targetToAdd = L"%JAVA_HOME%\\bin";
+        if (strcmp(sdk,"jdk")==0) {
+            backupSysEvn();
+            SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
+            if (!sysEnvUtil.setValue(L"JAVA_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%JAVA_HOME%\\bin",sysEnvUtil)) {
+                return -1;
             }
 
-            if (!userEnv.appendToValue(L"PATH", targetToAdd).has_value()) {
-                std::wcerr << L"Failed to append target path to PATH." << std::endl;
+            SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
+            if (!userEnvUtil.setValue(L"JAVA_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%JAVA_HOME%\\bin",userEnvUtil)) {
+                return -1;
+            }
+        } else if (strcmp(sdk,"maven")==0) {
+            backupSysEvn();
+            SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
+            if (!sysEnvUtil.setValue(L"MAVEN_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%MAVEN_HOME%\\bin",sysEnvUtil)) {
+                return -1;
+            }
+            if (!sysEnvUtil.setValue(L"M2_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%M2_HOME%\\bin",sysEnvUtil)) {
+                return -1;
+            }
+
+            SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
+            if (!userEnvUtil.setValue(L"MAVEN_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%MAVEN_HOME%\\bin",userEnvUtil)) {
+                return -1;
+            }
+            if (!userEnvUtil.setValue(L"M2_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%M2_HOME%\\bin",userEnvUtil)) {
+                return -1;
+            }
+        }else if (strcmp(sdk,"gradle")==0) {
+            backupSysEvn();
+            SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
+            if (!sysEnvUtil.setValue(L"GRADLE_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%GRADLE_HOME%\\bin",sysEnvUtil)) {
+                return -1;
+            }
+
+            SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
+            if (!userEnvUtil.setValue(L"GRADLE_HOME", linkPath.wstring()) ||
+            !updateEnvironment(L"%GRADLE_HOME%\\bin",userEnvUtil)) {
+                return -1;
             }
         }
+
+
+        // else if (strcmp(sdk,"tomcat")==0) {
+        //     backupSysEvn();
+        //     SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
+        //     if (!sysEnvUtil.setValue(L"CATALINA_HOME", linkPath.wstring()) ||
+        //     !updateEnvironment(L"%CATALINA_HOME%\\bin",sysEnvUtil)) {
+        //         return -1;
+        //     }
+        //     SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
+        //     if (!userEnvUtil.setValue(L"CATALINA_HOME", linkPath.wstring()) ||
+        //     !updateEnvironment(L"%CATALINA_HOME%\\bin",userEnvUtil)) {
+        //         return -1;
+        //     }
+        // }
+
+
 
         return 0;
 

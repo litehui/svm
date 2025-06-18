@@ -9,14 +9,16 @@ configure_file(
 )
 
 add_executable(svm main.cpp
-        service/use.cpp
-        service/use.h
-        util/ConfigUtil.cpp
-        util/ConfigUtil.h
         service/show.cpp
         service/show.h
-        util/sysEnvUtil.cpp
-        util/sysEnvUtil.h
+        service/use.cpp
+        service/use.h
+        service/backupSysEvn.h
+        service/backupSysEvn.cpp
+        util/ConfigUtil.cpp
+        util/ConfigUtil.h
+        util/SysEnvUtil.cpp
+        util/SysEnvUtil.h
 )
 
 target_include_directories(svm PRIVATE ${CMAKE_BINARY_DIR})

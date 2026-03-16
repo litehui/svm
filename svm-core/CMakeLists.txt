@@ -15,10 +15,22 @@ add_executable(svm main.cpp
         service/use.h
         service/backupSysEvn.h
         service/backupSysEvn.cpp
+        service/add.cpp
+        service/add.h
+        service/delete.cpp
+        service/delete.h
+        service/config.cpp
+        service/config.h
+        service/sdkconfig.cpp
+        service/sdkconfig.h
         util/ConfigUtil.cpp
         util/ConfigUtil.h
         util/SysEnvUtil.cpp
         util/SysEnvUtil.h
+        util/StringUtil.cpp
+        util/StringUtil.h
+        util/FileUtil.cpp
+        util/FileUtil.h
 )
 
 target_include_directories(svm PRIVATE ${CMAKE_BINARY_DIR})

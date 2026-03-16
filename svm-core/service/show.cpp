@@ -8,10 +8,49 @@
 #include <string>
 #include <vector>
 #include "../util/ConfigUtil.h"
+#include "../util/SysEnvUtil.h"
 
 // 类型别名定义
 using DirectoryPair = std::pair<std::string, std::string>;
 using DirectoryList = std::vector<DirectoryPair>;
+
+// 检查 SDK 是否正在被系统环境变量使用
+// @param sdk SDK 名称
+// @param version SDK 版本
+// @return true 如果正在使用，false 否则
+bool isSdkVersionInUse(const std::string& sdk, const std::string& version) {
+    SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
+    SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
+    
+    std::string sdkUpper = sdk;
+    for (char& c : sdkUpper) {
+        c = std::toupper(c);
+    }
+    
+    std::string homeEnv = sdkUpper + "_HOME";
+    std::wstring wHomeEnv = std::wstring(homeEnv.begin(), homeEnv.end());
+    
+    std::wstring sysValue = sysEnvUtil.getValue(wHomeEnv);
+    std::wstring userValue = userEnvUtil.getValue(wHomeEnv);
+    
+    // 检查系统环境变量
+    if (!sysValue.empty()) {
+        std::filesystem::path sysPath(sysValue);
+        if (sysPath.filename().string() == version) {
+            return true;
+        }
+    }
+    
+    // 检查用户环境变量
+    if (!userValue.empty()) {
+        std::filesystem::path userPath(userValue);
+        if (userPath.filename().string() == version) {
+            return true;
+        }
+    }
+    
+    return false;
+}
 
 constexpr std::wstring_view DEFAULT_REPOSITORY_BASE_PATH = L"..\\repository";
 
@@ -35,13 +74,18 @@ DirectoryList scanDirectories(const std::filesystem::path& rootDir) {
 // 结果显示函数
 void displayDirectories(const DirectoryList& directories) {
     for (const auto& [first, second] : directories) {
-        std::cout << first << "\t" << second << std::endl;
+        bool inUse = isSdkVersionInUse(first, second);
+        if (inUse) {
+            std::cout << first << "\t" << second << "\t[IN USE]" << std::endl;
+        } else {
+            std::cout << first << "\t" << second << std::endl;
+        }
     }
 }
 
 // 主函数
 std::string show() {
-    ConfigUtil configUtil("..\\config\\application.properties");
+    ConfigUtil configUtil("../config/application.properties");
     std::filesystem::path repositoryPath =
         (!std::string{configUtil.getProperty("repositoryBasePath")}.empty() ?
          std::filesystem::path(configUtil.getProperty("repositoryBasePath")) :

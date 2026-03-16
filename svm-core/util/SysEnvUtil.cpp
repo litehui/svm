@@ -1,6 +1,9 @@
 #include "SysEnvUtil.h"
+#include "StringUtil.h"
 #include <algorithm>
 
+#ifdef _WIN32
+// Windows 平台实现
 SysEnvUtil::SysEnvUtil(EnvScope scope) : m_scope(scope) {
     m_rootKey = (scope == EnvScope::System) ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
     m_regPath = (scope == EnvScope::System) 
@@ -68,13 +71,6 @@ bool SysEnvUtil::exists(const std::wstring& key) const {
     return exists;
 }
 
-bool SysEnvUtil::renameKey(const std::wstring& oldKey, const std::wstring& newKey) {
-    std::wstring oldValue = getValue(oldKey);
-    if (oldValue.empty()) return false;
-    if (!remove(oldKey)) return false;
-    return setValue(newKey, oldValue);
-}
-
 bool SysEnvUtil::setValue(const std::wstring& key, const std::wstring& value) {
     HKEY hKey;
     if (!openKey(&hKey, KEY_WRITE)) return false;
@@ -106,6 +102,67 @@ std::wstring SysEnvUtil::getValue(const std::wstring& key) const {
     RegCloseKey(hKey);
     return std::wstring(buffer);
 }
+#else
+// Linux 平台实现
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+
+SysEnvUtil::SysEnvUtil(EnvScope scope) : m_scope(scope) {}
+
+SysEnvUtil::~SysEnvUtil() {}
+
+std::map<std::wstring, std::wstring> SysEnvUtil::getAll() const {
+    std::map<std::wstring, std::wstring> result;
+    
+    // 读取当前环境变量
+    extern char** environ;
+    for (char** env = environ; *env != nullptr; ++env) {
+        std::string env_str = *env;
+        size_t pos = env_str.find('=');
+        if (pos != std::string::npos) {
+            std::string key = env_str.substr(0, pos);
+            std::string value = env_str.substr(pos + 1);
+            result[StringUtil::utf8_to_utf16(key)] = StringUtil::utf8_to_utf16(value);
+        }
+    }
+    
+    return result;
+}
+
+bool SysEnvUtil::remove(const std::wstring& key) {
+    std::string key_utf8 = StringUtil::utf16_to_utf8(key);
+    return unsetenv(key_utf8.c_str()) == 0;
+}
+
+bool SysEnvUtil::exists(const std::wstring& key) const {
+    std::string key_utf8 = StringUtil::utf16_to_utf8(key);
+    return getenv(key_utf8.c_str()) != nullptr;
+}
+
+bool SysEnvUtil::setValue(const std::wstring& key, const std::wstring& value) {
+    std::string key_utf8 = StringUtil::utf16_to_utf8(key);
+    std::string value_utf8 = StringUtil::utf16_to_utf8(value);
+    return setenv(key_utf8.c_str(), value_utf8.c_str(), 1) == 0;
+}
+
+std::wstring SysEnvUtil::getValue(const std::wstring& key) const {
+    std::string key_utf8 = StringUtil::utf16_to_utf8(key);
+    char* value = getenv(key_utf8.c_str());
+    if (value) {
+        return StringUtil::utf8_to_utf16(value);
+    }
+    return L"";
+}
+#endif
+
+// 平台无关的方法
+bool SysEnvUtil::renameKey(const std::wstring& oldKey, const std::wstring& newKey) {
+    std::wstring oldValue = getValue(oldKey);
+    if (oldValue.empty()) return false;
+    if (!remove(oldKey)) return false;
+    return setValue(newKey, oldValue);
+}
 
 std::wstring SysEnvUtil::setValueAndGetOld(const std::wstring& key, const std::wstring& value) {
     std::wstring oldValue = getValue(key);
@@ -124,4 +181,43 @@ std::wstring SysEnvUtil::appendValue(const std::wstring& key, const std::wstring
     
     setValue(key, newValue);
     return oldValue;
+}
+
+// ========== UTF-8 接口实现 ==========
+
+std::map<std::string, std::string> SysEnvUtil::getAllUtf8() const {
+    std::map<std::wstring, std::wstring> wresult = getAll();
+    std::map<std::string, std::string> result;
+    for (const auto& entry : wresult) {
+        result[StringUtil::utf16_to_utf8(entry.first)] = StringUtil::utf16_to_utf8(entry.second);
+    }
+    return result;
+}
+
+bool SysEnvUtil::removeUtf8(const std::string& key) {
+    return remove(StringUtil::utf8_to_utf16(key));
+}
+
+bool SysEnvUtil::existsUtf8(const std::string& key) const {
+    return exists(StringUtil::utf8_to_utf16(key));
+}
+
+bool SysEnvUtil::renameKeyUtf8(const std::string& oldKey, const std::string& newKey) {
+    return renameKey(StringUtil::utf8_to_utf16(oldKey), StringUtil::utf8_to_utf16(newKey));
+}
+
+bool SysEnvUtil::setValueUtf8(const std::string& key, const std::string& value) {
+    return setValue(StringUtil::utf8_to_utf16(key), StringUtil::utf8_to_utf16(value));
+}
+
+std::string SysEnvUtil::getValueUtf8(const std::string& key) const {
+    return StringUtil::utf16_to_utf8(getValue(StringUtil::utf8_to_utf16(key)));
+}
+
+std::string SysEnvUtil::setValueAndGetOldUtf8(const std::string& key, const std::string& value) {
+    return StringUtil::utf16_to_utf8(setValueAndGetOld(StringUtil::utf8_to_utf16(key), StringUtil::utf8_to_utf16(value)));
+}
+
+std::string SysEnvUtil::appendValueUtf8(const std::string& key, const std::string& value, const char separator) {
+    return StringUtil::utf16_to_utf8(appendValue(StringUtil::utf8_to_utf16(key), StringUtil::utf8_to_utf16(value), static_cast<wchar_t>(separator)));
 }

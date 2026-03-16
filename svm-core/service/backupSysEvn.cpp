@@ -12,8 +12,15 @@
 
 int backupSysEvn(){
 
+    // 生成带时间戳的文件名
+    time_t now = time(0);
+    struct tm* ltm = localtime(&now);
+    char timestamp[20];
+    strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", ltm);
+    
+    std::string fileName = "../config/backupSysEnv_" + std::string(timestamp) + ".txt";
     std::wofstream outputFile;
-    outputFile.open("../config/backupSysEnv.txt");
+    outputFile.open(fileName);
 
     if(outputFile.is_open()) {
         time_t now = time(0);
@@ -47,7 +54,7 @@ int backupSysEvn(){
         }
     }
 
-    std::cout << "backup your system enverment and user enverment to config/backupSysEnv.txt";
+    std::cout << "backup your system enverment and user enverment to " << fileName;
 
     return 0;
 }

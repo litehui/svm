@@ -1,0 +1,18 @@
+{
+  "gradle": {
+    "homeEnv": "GRADLE_HOME",
+    "pathFolders": ["bin"]
+  },
+  "jdk": {
+    "homeEnv": "JAVA_HOME",
+    "pathFolders": ["bin"]
+  },
+  "maven": {
+    "homeEnv": "MAVEN_HOME",
+    "pathFolders": ["bin"]
+  },
+  "tomcat": {
+    "homeEnv": "CATALINA_HOME",
+    "pathFolders": ["bin"]
+  }
+}

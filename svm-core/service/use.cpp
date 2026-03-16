@@ -2,20 +2,17 @@
 #include "../util/ConfigUtil.h"
 #include "backupSysEvn.h"
 #include "../util/SysEnvUtil.h"
+#include "sdkconfig.h"
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <windows.h> // 新增头文件
 
 
-// 替换原有常量定义
-std::filesystem::path getModulePath() {
-    wchar_t path[MAX_PATH];
-    GetModuleFileNameW(nullptr, path, MAX_PATH);
-    return std::filesystem::path(path).parent_path().parent_path(); // 获取项目根目录
-}
+// 使用 FileUtil 类
+#include "../util/FileUtil.h"
 
-const std::filesystem::path MODULE_ROOT = getModulePath();
+const std::filesystem::path MODULE_ROOT = FileUtil::getModulePath();
 
 
 // 原常量改为动态路径
@@ -83,53 +80,58 @@ int use(const char* sdk, const char* version) {
             return -1;
         }
 
-        if (strcmp(sdk,"jdk")==0) {
+        // 加载 SDK 配置
+        auto sdkConfigs = getSdkConfigs();
+        auto it = sdkConfigs.find(sdk);
+        
+        if (it != sdkConfigs.end()) {
+            const auto& config = it->second;
+            
             backupSysEvn();
+            
+            // 更新系统环境变量
             SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
-            if (!sysEnvUtil.setValue(L"JAVA_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%JAVA_HOME%\\bin",sysEnvUtil)) {
+            std::wstring wHomeEnv = std::wstring(config.homeEnv.begin(), config.homeEnv.end());
+            if (!sysEnvUtil.setValue(wHomeEnv, linkPath.wstring())) {
                 return -1;
             }
-
+            
+            // 更新系统 Path
+            for (const auto& folder : config.pathFolders) {
+                std::wstring pathEntry = L"%" + wHomeEnv + L"%\\" + std::wstring(folder.begin(), folder.end());
+                if (!updateEnvironment(pathEntry, sysEnvUtil)) {
+                    return -1;
+                }
+            }
+            
+            // 更新用户环境变量
             SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
-            if (!userEnvUtil.setValue(L"JAVA_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%JAVA_HOME%\\bin",userEnvUtil)) {
+            if (!userEnvUtil.setValue(wHomeEnv, linkPath.wstring())) {
                 return -1;
             }
-        } else if (strcmp(sdk,"maven")==0) {
-            backupSysEvn();
-            SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
-            if (!sysEnvUtil.setValue(L"MAVEN_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%MAVEN_HOME%\\bin",sysEnvUtil)) {
-                return -1;
+            
+            // 更新用户 Path
+            for (const auto& folder : config.pathFolders) {
+                std::wstring pathEntry = L"%" + wHomeEnv + L"%\\" + std::wstring(folder.begin(), folder.end());
+                if (!updateEnvironment(pathEntry, userEnvUtil)) {
+                    return -1;
+                }
             }
-            if (!sysEnvUtil.setValue(L"M2_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%M2_HOME%\\bin",sysEnvUtil)) {
-                return -1;
+            
+            // 特殊处理 Maven
+            if (strcmp(sdk, "maven") == 0) {
+                // 设置 M2_HOME
+                std::wstring wM2Home = L"M2_HOME";
+                if (!sysEnvUtil.setValue(wM2Home, linkPath.wstring())) {
+                    return -1;
+                }
+                if (!userEnvUtil.setValue(wM2Home, linkPath.wstring())) {
+                    return -1;
+                }
             }
-
-            SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
-            if (!userEnvUtil.setValue(L"MAVEN_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%MAVEN_HOME%\\bin",userEnvUtil)) {
-                return -1;
-            }
-            if (!userEnvUtil.setValue(L"M2_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%M2_HOME%\\bin",userEnvUtil)) {
-                return -1;
-            }
-        }else if (strcmp(sdk,"gradle")==0) {
-            backupSysEvn();
-            SysEnvUtil sysEnvUtil(SysEnvUtil::EnvScope::System);
-            if (!sysEnvUtil.setValue(L"GRADLE_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%GRADLE_HOME%\\bin",sysEnvUtil)) {
-                return -1;
-            }
-
-            SysEnvUtil userEnvUtil(SysEnvUtil::EnvScope::User);
-            if (!userEnvUtil.setValue(L"GRADLE_HOME", linkPath.wstring()) ||
-            !updateEnvironment(L"%GRADLE_HOME%\\bin",userEnvUtil)) {
-                return -1;
-            }
+        } else {
+            std::wcerr << L"SDK config not found for: " << sdk << std::endl;
+            return -1;
         }
 
 
